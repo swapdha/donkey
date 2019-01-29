@@ -10,8 +10,8 @@ import time
 import donkeycar as dk
 from donkeycar.parts.datastore import Tub
 from donkeycar.utils import *
-from .tub import TubManager
-from .joystick_creator import CreateJoystick
+from donkeycar.management.tub import TubManager
+from donkeycar.management.joystick_creator import CreateJoystick
 import numpy as np
 
 PACKAGE_PATH = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -185,7 +185,9 @@ class MakeMovie(BaseCommand):
         parser.add_argument('--model', default='None', help='the model to use to show control outputs')
         parser.add_argument('--model_type', default='categorical', help='the model type to load')
         parser.add_argument('--salient', action="store_true", help='should we overlay salient map showing avtivations')
-        parser.add_argument('--limit', type=int, default=-1, help='max number frames to process')
+        parser.add_argument('--start', type=int, default=1, help='first frame to process')
+        parser.add_argument('--end', type=int, default=-1, help='last frame to process')
+        parser.add_argument('--scale', type=int, default=2, help='make image frame output larger by X mult')
         parsed_args = parser.parse_args(args)
         return parsed_args, parser
 
@@ -225,9 +227,21 @@ class MakeMovie(BaseCommand):
 
         self.tub = Tub(args.tub)
         self.num_rec = self.tub.get_num_records()
-        if args.limit > 0:
-            self.num_rec = args.limit
-        self.iRec = 0
+        
+        if args.start == 1:
+            self.start = self.tub.get_index(shuffled=False)[0]
+        else:
+            self.start = args.start
+        
+        if args.end != -1:
+            self.end = args.end    
+        else:
+            self.end = self.num_rec - self.start
+
+        self.num_rec = self.end - self.start
+        
+        self.iRec = args.start
+        self.scale = args.scale
         self.keras_part = None
         self.convolution_part = None
         if not args.model == "None":
@@ -368,22 +382,39 @@ class MakeMovie(BaseCommand):
         We don't use t to reference the frame, but instead increment
         a frame counter. This assumes sequential access.
         '''
-        self.iRec = self.iRec + 1
         
-        if self.iRec >= self.num_rec - 1:
+        if self.iRec >= self.end:
             return None
 
-        rec = self.tub.get_record(self.iRec)
-        image = rec['cam/image_array']
+        rec = None
 
-        self.draw_model_prediction(rec, image)
+        while rec is None and self.iRec < self.end:
+            try:
+                rec = self.tub.get_record(self.iRec)
+            except Exception as e:
+                print(e)
+                print("Failed to get image for frame", self.iRec)
+                self.iRec = self.iRec + 1
+                rec = None
+
+        image = rec['cam/image_array']
 
         if self.convolution_part:
             image = self.draw_salient(image)
+            image = image * 255
+            image = image.astype('uint8')
+        
+        self.draw_model_prediction(rec, image)
+
+        if self.scale != 1:
+            import cv2
+            h, w, d = image.shape
+            dsize = (w * self.scale, h * self.scale)
+            image = cv2.resize(image, dsize=dsize, interpolation=cv2.INTER_CUBIC)
+        
+        self.iRec = self.iRec + 1
         
         return image # returns a 8-bit RGB array
-
-
 
 
 
@@ -688,4 +719,6 @@ def execute_from_command_line():
         dk.utils.eprint(list(commands.keys()))
         
     
+if __name__ == "__main__":
+    execute_from_command_line()
     

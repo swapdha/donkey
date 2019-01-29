@@ -31,13 +31,16 @@ def scale(im, size=128):
     return im
 
 
-def img_to_binary(img):
+def img_to_binary(img, format='jpeg'):
     '''
     accepts: PIL image
     returns: binary stream (used to save to database)
     '''
     f = BytesIO()
-    img.save(f, format='jpeg')
+    try:
+        img.save(f, format=format)
+    except Exception as e:
+        raise e
     return f.getvalue()
 
 
@@ -72,8 +75,15 @@ def binary_to_img(binary):
     accepts: binary file object from BytesIO
     returns: PIL image
     '''
+    if binary is None or len(binary) == 0:
+        return None
+
     img = BytesIO(binary)
-    return Image.open(img)
+    try:
+        img = Image.open(img)
+        return img
+    except:
+        return None
 
 
 def norm_img(img):
@@ -389,7 +399,7 @@ def gather_records(cfg, tub_names, opts=None, verbose=False):
     return records
 
 def get_model_by_type(model_type, cfg):
-    from donkeycar.parts.keras import KerasRNN_LSTM, KerasBehavioral, KerasCategorical, KerasIMU, KerasLinear, Keras3D_CNN, KerasLocalizer
+    from donkeycar.parts.keras import KerasRNN_LSTM, KerasBehavioral, KerasCategorical, KerasIMU, KerasLinear, Keras3D_CNN, KerasLocalizer, KerasLatent
  
     if model_type is None:
         model_type = "categorical"
@@ -409,7 +419,9 @@ def get_model_by_type(model_type, cfg):
     elif model_type == "rnn":
         kl = KerasRNN_LSTM(image_w=cfg.IMAGE_W, image_h=cfg.IMAGE_H, image_d=cfg.IMAGE_DEPTH, seq_length=cfg.SEQUENCE_LENGTH)
     elif model_type == "categorical":
-        kl = KerasCategorical(input_shape=input_shape)
+        kl = KerasCategorical(input_shape=input_shape, throttle_range=cfg.MODEL_CATEGORICAL_MAX_THROTTLE_RANGE)
+    elif model_type == "latent":
+        kl = KerasLatent(input_shape=input_shape)
     else:
         raise Exception("unknown model type: %s" % model_type)
 
